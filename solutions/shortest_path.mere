@@ -1,0 +1,184 @@
+// Library Checker "Shortest Path" — https://judge.yosupo.jp/problem/shortest_path
+//
+// Dijkstra. There is no priority queue in the stdlib, so the binary heap is
+// here: two parallel Vecs (key and payload) and a one-cell Vec for the size,
+// because a Vec is append-only-plus-set and has no pop.
+//
+// The main loop is the one place in this corpus that uses `while`, to see what
+// the natural imperative spelling costs. Everything it would mutate still has
+// to live in a Vec cell.
+
+let next_int = fn (b: bytes) -> fn (n: int) -> fn pos ->
+  let rec skip = fn (i: int) ->
+    if i >= n then i
+    else
+      let c = bytes_get b i in
+      if (c >= 48 && c <= 57) || c == 45 then i else skip (i + 1) in
+  let s = skip (vec_get pos 0) in
+  let neg = if s >= n then false else bytes_get b s == 45 in
+  let rec digits = fn (i: int) -> fn (acc: int) ->
+    if i >= n then { vec_set pos 0 i; acc }
+    else
+      let c = bytes_get b i in
+      if c >= 48 && c <= 57 then digits (i + 1) (acc * 10 + (c - 48))
+      else { vec_set pos 0 i; acc } in
+  let v = digits (if neg then s + 1 else s) 0 in
+  if neg then 0 - v else v;
+
+let zeros = fn (k: int) ->
+  let v = vec_new () in
+  let rec go = fn (i: int) -> if i >= k then () else { vec_push v 0; go (i + 1) } in
+  { go 0; v };
+
+// `let inf = ...` is refused: Mere reserves an uppercase first letter for
+// constructors, and the error says so. CP code writes constants in caps.
+let inf = 4611686018427387903;
+
+let hswap = fn hd -> fn hv -> fn (i: int) -> fn (j: int) ->
+  let td = vec_get hd i in
+  let tv = vec_get hv i in
+  let _ = vec_set hd i (vec_get hd j) in
+  let _ = vec_set hv i (vec_get hv j) in
+  let _ = vec_set hd j td in
+  vec_set hv j tv;
+
+let hpush = fn hd -> fn hv -> fn hn -> fn (d: int) -> fn (v: int) ->
+  let n = vec_get hn 0 in
+  let _ = if n < vec_len hd then { vec_set hd n d; vec_set hv n v }
+          else { vec_push hd d; vec_push hv v } in
+  let _ = vec_set hn 0 (n + 1) in
+  let rec up = fn (i: int) ->
+    if i == 0 then ()
+    else
+      let p = (i - 1) / 2 in
+      if vec_get hd p <= vec_get hd i then ()
+      else let _ = hswap hd hv p i in up p in
+  up n;
+
+let hpop = fn hd -> fn hv -> fn hn ->
+  let n = vec_get hn 0 - 1 in
+  let _ = vec_set hd 0 (vec_get hd n) in
+  let _ = vec_set hv 0 (vec_get hv n) in
+  let _ = vec_set hn 0 n in
+  let rec down = fn (i: int) ->
+    let l = 2 * i + 1 in
+    let r = l + 1 in
+    if l >= n then ()
+    else
+      let c = if r < n && vec_get hd r < vec_get hd l then r else l in
+      if vec_get hd i <= vec_get hd c then ()
+      else let _ = hswap hd hv i c in down c in
+  down 0;
+
+let solve = fn () ->
+  let b = bytes_of_str (read_stdin ()) in
+  let len = bytes_len b in
+  let pos = vec_new () in
+  let _ = vec_push pos 0 in
+  let n = next_int b len pos in
+  let m = next_int b len pos in
+  let s = next_int b len pos in
+  let t = next_int b len pos in
+  let ea = vec_new () in
+  let eb = vec_new () in
+  let ec = vec_new () in
+  let rec read = fn (i: int) ->
+    if i >= m then ()
+    else {
+      vec_push ea (next_int b len pos);
+      vec_push eb (next_int b len pos);
+      vec_push ec (next_int b len pos);
+      read (i + 1)
+    } in
+  let _ = read 0 in
+
+  // CSR
+  let head = zeros (n + 2) in
+  let rec count = fn (i: int) ->
+    if i >= m then ()
+    else
+      let a = vec_get ea i in
+      { vec_set head (a + 1) (vec_get head (a + 1) + 1); count (i + 1) } in
+  let _ = count 0 in
+  let rec pre = fn (v: int) ->
+    if v > n then ()
+    else { vec_set head v (vec_get head v + vec_get head (v - 1)); pre (v + 1) } in
+  let _ = pre 1 in
+  let cur = zeros n in
+  let rec cp = fn (v: int) ->
+    if v >= n then () else { vec_set cur v (vec_get head v); cp (v + 1) } in
+  let _ = cp 0 in
+  let dst = zeros m in
+  let wt = zeros m in
+  let rec fill = fn (i: int) ->
+    if i >= m then ()
+    else
+      let a = vec_get ea i in
+      let c = vec_get cur a in
+      {
+        vec_set dst c (vec_get eb i);
+        vec_set wt c (vec_get ec i);
+        vec_set cur a (c + 1);
+        fill (i + 1)
+      } in
+  let _ = fill 0 in
+
+  let dist = vec_new () in
+  let par = vec_new () in
+  let rec init = fn (v: int) ->
+    if v >= n then () else { vec_push dist inf; vec_push par (0 - 1); init (v + 1) } in
+  let _ = init 0 in
+  let _ = vec_set dist s 0 in
+  let hd = vec_new () in
+  let hv = vec_new () in
+  let hn = vec_new () in
+  let _ = vec_push hn 0 in
+  let _ = hpush hd hv hn 0 s in
+  let _ =
+    while vec_get hn 0 > 0 do
+      let d = vec_get hd 0 in
+      let v = vec_get hv 0 in
+      let _ = hpop hd hv hn in
+      if d > vec_get dist v then ()
+      else
+        let rec each = fn (i: int) ->
+          if i >= vec_get head (v + 1) then ()
+          else
+            let u = vec_get dst i in
+            let nd = d + vec_get wt i in
+            let _ = if nd < vec_get dist u then
+                      let _ = vec_set dist u nd in
+                      let _ = vec_set par u v in
+                      hpush hd hv hn nd u
+                    else () in
+            each (i + 1) in
+        each (vec_get head v) in
+
+  if vec_get dist t == inf then print "-1"
+  else
+    let path = vec_new () in
+    let rec back = fn (v: int) ->
+      if v == s then () else { vec_push path v; back (vec_get par v) } in
+    let _ = back t in
+    let out = strbuf_new () in
+    let _ = strbuf_push out (str_of_int (vec_get dist t)) in
+    let _ = strbuf_push out " " in
+    let _ = strbuf_push out (str_of_int (vec_len path)) in
+    let _ = strbuf_push out "\n" in
+    let rec emit = fn (j: int) ->
+      if j < 0 then ()
+      else
+        let v = vec_get path j in
+        let u = if j + 1 < vec_len path then vec_get path (j + 1) else s in
+        {
+          strbuf_push out (str_of_int u);
+          strbuf_push out " ";
+          strbuf_push out (str_of_int v);
+          strbuf_push out "\n";
+          emit (j - 1)
+        } in
+    let _ = emit (vec_len path - 1) in
+    print_no_nl (strbuf_to_str out);
+
+let _ = solve ();
+let _ = exit 0;

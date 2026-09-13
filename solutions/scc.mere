@@ -1,0 +1,181 @@
+// Library Checker "Strongly Connected Components" — https://judge.yosupo.jp/problem/scc
+//
+// Kosaraju, with both passes ITERATIVE and the graph in CSR (one head Vec and
+// one to Vec per direction). Two reasons, and only one of them is about Mere:
+// a Vec of Vecs would be one allocation per vertex, and a recursive DFS over
+// 500,000 vertices wants a stack this platform does not hand a program by
+// default -- see solutions/scc__recursive.mere, which is the same algorithm
+// written the natural way and is kept precisely because it does not survive.
+//
+// Kosaraju's second pass discovers components in topological order already,
+// which is what the output asks for.
+
+let next_int = fn (b: bytes) -> fn (n: int) -> fn pos ->
+  let rec skip = fn (i: int) ->
+    if i >= n then i
+    else
+      let c = bytes_get b i in
+      if (c >= 48 && c <= 57) || c == 45 then i else skip (i + 1) in
+  let s = skip (vec_get pos 0) in
+  let neg = if s >= n then false else bytes_get b s == 45 in
+  let rec digits = fn (i: int) -> fn (acc: int) ->
+    if i >= n then { vec_set pos 0 i; acc }
+    else
+      let c = bytes_get b i in
+      if c >= 48 && c <= 57 then digits (i + 1) (acc * 10 + (c - 48))
+      else { vec_set pos 0 i; acc } in
+  let v = digits (if neg then s + 1 else s) 0 in
+  if neg then 0 - v else v;
+
+let zeros = fn (k: int) ->
+  let v = vec_new () in
+  let rec go = fn (i: int) -> if i >= k then () else { vec_push v 0; go (i + 1) } in
+  { go 0; v };
+
+// one iterative DFS, shared by both passes: walks `to` from `head`, marks
+// `mark`, and appends each finished vertex to `sink`.
+let dfs_all = fn head -> fn dst -> fn mark -> fn itv -> fn stack -> fn sink ->
+  fn (start: int) ->
+    if vec_get mark start != 0 then ()
+    else {
+      vec_set mark start 1;
+      vec_set stack 0 start;
+      let rec loop = fn (sp: int) ->
+        if sp == 0 then ()
+        else
+          let v = vec_get stack (sp - 1) in
+          let i = vec_get itv v in
+          if i < vec_get head (v + 1) then {
+            vec_set itv v (i + 1);
+            let u = vec_get dst i in
+            if vec_get mark u == 0 then { vec_set mark u 1; vec_set stack sp u; loop (sp + 1) }
+            else loop sp
+          } else { vec_push sink v; loop (sp - 1) } in
+      loop 1
+    };
+
+let solve = fn () ->
+  let b = bytes_of_str (read_stdin ()) in
+  let len = bytes_len b in
+  let pos = vec_new () in
+  let _ = vec_push pos 0 in
+  let n = next_int b len pos in
+  let m = next_int b len pos in
+  let ea = vec_new () in
+  let eb = vec_new () in
+  let rec read = fn (i: int) ->
+    if i >= m then ()
+    else {
+      vec_push ea (next_int b len pos);
+      vec_push eb (next_int b len pos);
+      read (i + 1)
+    } in
+  let _ = read 0 in
+
+  // CSR both ways. head has n+1 entries; head[v]..head[v+1] is v's slice.
+  let build = fn src -> fn dst ->
+    let head = zeros (n + 2) in
+    let rec count = fn (i: int) ->
+      if i >= m then ()
+      else
+        let a = vec_get src i in
+        { vec_set head (a + 1) (vec_get head (a + 1) + 1); count (i + 1) } in
+    let _ = count 0 in
+    let rec pre = fn (v: int) ->
+      if v > n then ()
+      else { vec_set head v (vec_get head v + vec_get head (v - 1)); pre (v + 1) } in
+    let _ = pre 1 in
+    let cur = zeros n in
+    let _ = let rec cp = fn (v: int) ->
+              if v >= n then () else { vec_set cur v (vec_get head v); cp (v + 1) } in
+            cp 0 in
+    let to = zeros m in
+    let rec fill = fn (i: int) ->
+      if i >= m then ()
+      else
+        let a = vec_get src i in
+        let c = vec_get cur a in
+        { vec_set to c (vec_get dst i); vec_set cur a (c + 1); fill (i + 1) } in
+    { fill 0; pair head to };
+
+  let fwd = build ea eb in
+  let rev = build eb ea in
+
+  let stack = zeros (n + 1) in
+  let order = vec_new () in
+  let vis = zeros n in
+  let itv = zeros n in
+  let _ = let rec cp = fn (v: int) ->
+            if v >= n then () else { vec_set itv v (vec_get (fst fwd) v); cp (v + 1) } in
+          cp 0 in
+  let rec pass1 = fn (v: int) ->
+    if v >= n then ()
+    else { dfs_all (fst fwd) (snd fwd) vis itv stack order v; pass1 (v + 1) } in
+  let _ = pass1 0 in
+
+  let comp = vec_new () in
+  let _ = let rec neg = fn (v: int) -> if v >= n then () else { vec_push comp (0 - 1); neg (v + 1) } in
+          neg 0 in
+  let vis2 = zeros n in
+  let itv2 = zeros n in
+  let _ = let rec cp = fn (v: int) ->
+            if v >= n then () else { vec_set itv2 v (vec_get (fst rev) v); cp (v + 1) } in
+          cp 0 in
+  let group = vec_new () in
+  let kbox = vec_new () in
+  let _ = vec_push kbox 0 in
+  let rec pass2 = fn (idx: int) ->
+    if idx < 0 then ()
+    else
+      let v = vec_get order idx in
+      if vec_get vis2 v != 0 then pass2 (idx - 1)
+      else
+        // NOT a block here. Inside `{ a; b }` a `let x = e in ...` binds only
+        // as far as the next `;` -- the block desugars to `let _ = a in b`, so
+        // the let's body IS the rest of that one statement. A chain of
+        // `let _ = ... in` is how a binding survives to the end.
+        let before = vec_len group in
+        let _ = dfs_all (fst rev) (snd rev) vis2 itv2 stack group v in
+        let k = vec_get kbox 0 in
+        let rec tag = fn (j: int) ->
+          if j >= vec_len group then ()
+          else { vec_set comp (vec_get group j) k; tag (j + 1) } in
+        let _ = tag before in
+        let _ = vec_set kbox 0 (k + 1) in
+        pass2 (idx - 1) in
+  let _ = pass2 (vec_len order - 1) in
+
+  // group holds the vertices in component order already; comp[v] says which.
+  let k = vec_get kbox 0 in
+  let size = zeros k in
+  let _ = let rec cnt = fn (v: int) ->
+            if v >= n then ()
+            else
+              let c = vec_get comp v in
+              { vec_set size c (vec_get size c + 1); cnt (v + 1) } in
+          cnt 0 in
+  let out = strbuf_new () in
+  let _ = strbuf_push out (str_of_int k) in
+  let _ = strbuf_push out "\n" in
+  let rec emit = fn (c: int) -> fn (at: int) ->
+    if c >= k then ()
+    else
+      let l = vec_get size c in
+      {
+        strbuf_push out (str_of_int l);
+        let rec one = fn (j: int) ->
+          if j >= l then ()
+          else {
+            strbuf_push out " ";
+            strbuf_push out (str_of_int (vec_get group (at + j)));
+            one (j + 1)
+          } in
+        one 0;
+        strbuf_push out "\n";
+        emit (c + 1) (at + l)
+      } in
+  let _ = emit 0 0 in
+  print_no_nl (strbuf_to_str out);
+
+let _ = solve ();
+let _ = exit 0;

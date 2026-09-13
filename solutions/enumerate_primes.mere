@@ -1,0 +1,84 @@
+// Library Checker "Enumerate Primes" — https://judge.yosupo.jp/problem/enumerate_primes
+//
+// N is up to 500,000,000, and that number is the whole point of including this
+// one. A Vec[int] sieve would be 8 bytes per entry -- 4 GB, four times the
+// memory limit -- because Mere has no compact typed array: a Vec of ints is a
+// Vec of 64-bit slots whatever fits in them. So the sieve is a ByteBuf used as
+// a bitset over odd numbers only: 500,000,000 / 2 / 8 = 31 MB.
+//
+// The output is a single line of up to a million numbers, so this row is a
+// control for line buffering the same way zalgorithm is.
+
+let next_int = fn (b: bytes) -> fn (n: int) -> fn pos ->
+  let rec skip = fn (i: int) ->
+    if i >= n then i
+    else
+      let c = bytes_get b i in
+      if (c >= 48 && c <= 57) || c == 45 then i else skip (i + 1) in
+  let s = skip (vec_get pos 0) in
+  let neg = if s >= n then false else bytes_get b s == 45 in
+  let rec digits = fn (i: int) -> fn (acc: int) ->
+    if i >= n then { vec_set pos 0 i; acc }
+    else
+      let c = bytes_get b i in
+      if c >= 48 && c <= 57 then digits (i + 1) (acc * 10 + (c - 48))
+      else { vec_set pos 0 i; acc } in
+  let v = digits (if neg then s + 1 else s) 0 in
+  if neg then 0 - v else v;
+
+let solve = fn () ->
+  let b0 = bytes_of_str (read_stdin ()) in
+  let blen = bytes_len b0 in
+  let pos = vec_new () in
+  let _ = vec_push pos 0 in
+  let n = next_int b0 blen pos in
+  let a = next_int b0 blen pos in
+  let b = next_int b0 blen pos in
+  // index i stands for the odd number 2i+1
+  let half = (n + 1) / 2 in
+  let nbytes = (half + 7) / 8 + 1 in
+  let sv = bytebuf_new nbytes in
+  let is_comp = fn (i: int) ->
+    bit_and (bytebuf_get sv (i / 8)) (bit_shl 1 (bit_and i 7)) != 0 in
+  let mark = fn (i: int) ->
+    let k = i / 8 in
+    bytebuf_set sv k (bit_or (bytebuf_get sv k) (bit_shl 1 (bit_and i 7))) in
+  let _ = mark 0 in                       // the number 1
+  let rec outer = fn (i: int) ->
+    let p = 2 * i + 1 in
+    if p * p > n then ()
+    else
+      let _ = if is_comp i then ()
+              else
+                let rec inner = fn (j: int) ->
+                  if j >= half then () else { mark j; inner (j + p) } in
+                inner ((p * p - 1) / 2) in
+      outer (i + 1) in
+  let _ = outer 1 in
+  // p_0 = 2, then the odd primes in order
+  let out = strbuf_new () in
+  let cnt = vec_new () in
+  let _ = vec_push cnt 0 in               // how many primes seen
+  let _ = vec_push cnt 0 in               // how many printed
+  let take = fn (p: int) ->
+    let k = vec_get cnt 0 in
+    let _ = vec_set cnt 0 (k + 1) in
+    if k >= b && (k - b) % a == 0 then
+      let x = vec_get cnt 1 in
+      let _ = vec_set cnt 1 (x + 1) in
+      let _ = if x > 0 then strbuf_push out " " else () in
+      strbuf_push out (str_of_int p)
+    else () in
+  let _ = if n >= 2 then take 2 else () in
+  let rec scan_odd = fn (i: int) ->
+    if i >= half then ()
+    else
+      let p = 2 * i + 1 in
+      let _ = if p <= n && is_comp i == false then take p else () in
+      scan_odd (i + 1) in
+  let _ = scan_odd 1 in
+  let _ = print (str_of_int (vec_get cnt 0) ++ " " ++ str_of_int (vec_get cnt 1)) in
+  print (strbuf_to_str out);
+
+let _ = solve ();
+let _ = exit 0;

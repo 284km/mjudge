@@ -1,0 +1,79 @@
+// Library Checker "Static RMQ" — https://judge.yosupo.jp/problem/staticrmq
+//
+// A sparse table, flat: LOG rows of N in one Vec, indexed by hand. N and Q are
+// both 500,000, so the table is about ten million ints -- the largest single
+// allocation in this corpus so far, and a direct question to the region
+// allocator rather than to the language.
+
+let next_int = fn (b: bytes) -> fn (n: int) -> fn pos ->
+  let rec skip = fn (i: int) ->
+    if i >= n then i
+    else
+      let c = bytes_get b i in
+      if (c >= 48 && c <= 57) || c == 45 then i else skip (i + 1) in
+  let s = skip (vec_get pos 0) in
+  let neg = if s >= n then false else bytes_get b s == 45 in
+  let rec digits = fn (i: int) -> fn (acc: int) ->
+    if i >= n then { vec_set pos 0 i; acc }
+    else
+      let c = bytes_get b i in
+      if c >= 48 && c <= 57 then digits (i + 1) (acc * 10 + (c - 48))
+      else { vec_set pos 0 i; acc } in
+  let v = digits (if neg then s + 1 else s) 0 in
+  if neg then 0 - v else v;
+
+let solve = fn () ->
+  let b = bytes_of_str (read_stdin ()) in
+  let len = bytes_len b in
+  let pos = vec_new () in
+  let _ = vec_push pos 0 in
+  let n = next_int b len pos in
+  let q = next_int b len pos in
+  // lg[i] = floor(log2 i), built from lg[i/2]; the query needs it per length
+  let lg = vec_new () in
+  let _ = vec_push lg 0 in
+  let _ = vec_push lg 0 in
+  let rec mklg = fn (i: int) ->
+    if i > n then () else { vec_push lg (vec_get lg (i / 2) + 1); mklg (i + 1) } in
+  let _ = mklg 2 in
+  let levels = vec_get lg n + 1 in
+  let t = vec_new () in
+  let rec read = fn (i: int) ->
+    if i >= n then () else { vec_push t (next_int b len pos); read (i + 1) } in
+  let _ = read 0 in
+  let rec rows = fn (k: int) ->
+    if k >= levels then ()
+    else
+      let span = bit_shl 1 (k - 1) in
+      let rec col = fn (i: int) ->
+        if i + bit_shl 1 k > n then ()
+        else
+          let a = vec_get t ((k - 1) * n + i) in
+          let c = vec_get t ((k - 1) * n + i + span) in
+          { vec_push t (if a < c then a else c); col (i + 1) } in
+      {
+        // the row is only n - 2^k + 1 long; pad it so that (k * n + i) stays
+        // the index arithmetic for every row
+        col 0;
+        let rec pad = fn (i: int) ->
+          if i >= bit_shl 1 k - 1 then () else { vec_push t 0; pad (i + 1) } in
+        pad 0;
+        rows (k + 1)
+      } in
+  let _ = rows 1 in
+  let out = strbuf_new () in
+  let rec go = fn (j: int) ->
+    if j >= q then ()
+    else
+      let l = next_int b len pos in
+      let r = next_int b len pos in
+      let k = vec_get lg (r - l) in
+      let a = vec_get t (k * n + l) in
+      let c = vec_get t (k * n + r - bit_shl 1 k) in
+      { strbuf_push out (str_of_int (if a < c then a else c));
+        strbuf_push out "\n"; go (j + 1) } in
+  let _ = go 0 in
+  print_no_nl (strbuf_to_str out);
+
+let _ = solve ();
+let _ = exit 0;
