@@ -11,9 +11,21 @@ MERE=<mere checkout> sh judge/poison.sh             # can the board print red?
 ```
 
 ```
-problem               verdict         time     ref   ratio  peak_rss   ref_rss   alloc_MB
-unionfind             AC             0.311   0.298    1.0x      16.9       2.9       14.3
+problem                   verdict         time     ref   ratio  peak_rss   ref_rss   alloc_MB
+many_aplusb               AC             0.233   0.370    0.6x     161.6       1.3      159.9
+shortest_path             AC             0.173   0.143    1.2x     122.6      39.2      122.1
+unionfind                 AC             0.021   0.043    0.5x      16.9       2.9       14.3
+zalgorithm                AC             0.095   0.050    1.9x      26.8       4.2       25.7
 ```
+
+Those numbers are from after the first thing this board found. Before it, the
+same three multi-line rows read 2.403, 1.251 and 0.251 -- four to twelve times
+the reference. `judge/io_cost.sh` ran each solution twice, once with stdout to
+a file and once to `/dev/null`, and the gap was the same constant everywhere:
+about **1.6 microseconds per output line**, in ten programs. The language was
+not slower. `main` set stdout line buffered, so an `fwrite` of an
+already-assembled answer flushed at every newline. `print_no_nl` writes through
+`write(2)` now, and the gap is gone.
 
 ## Why this exists
 
