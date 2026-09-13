@@ -1,0 +1,98 @@
+// POISON. A deliberately bad solution, kept so that judge/poison.sh can ask
+// whether the board has a red state. A file named `<problem>__<tag>.mere` is a
+// variant: it is judged against <problem>'s data but stays off the default
+// board.
+//
+// If a poison comes back AC, the solution is not good — the board is broken.
+//
+// For WA: the answer is inverted. Time and memory match the correct solution,
+// so this one asks whether the checker is actually consulted.
+
+// Library Checker "Unionfind" — https://judge.yosupo.jp/problem/unionfind
+//
+// Stage 1 rule: no library of our own. The language and the stdlib only, and
+// the frictions that show up get recorded rather than worked around — which is
+// why the output below goes through plain `print_no_nl` even though stdout is
+// line buffered. The price of that shows up in the board's time column.
+
+// --- input ------------------------------------------------------------------
+// There are no mutable variables, so the read cursor lives in a one-cell Vec
+// (the spelling examples/regex.mere uses). `char_at` allocates a one-character
+// str per call, so the scan reads bytes instead.
+let next_int = fn (b: bytes) -> fn (n: int) -> fn pos ->
+  let rec skip = fn (i: int) ->
+    if i >= n then i
+    else
+      let c = bytes_get b i in
+      if c >= 48 && c <= 57 then i else skip (i + 1) in
+  let rec digits = fn (i: int) -> fn (acc: int) ->
+    if i >= n then { vec_set pos 0 i; acc }
+    else
+      let c = bytes_get b i in
+      if c >= 48 && c <= 57 then digits (i + 1) (acc * 10 + (c - 48))
+      else { vec_set pos 0 i; acc } in
+  digits (skip (vec_get pos 0)) 0;
+
+// --- union-find (path compression + union by size) ---------------------------
+// Both `root_of` and the compression walk are tail recursive, so they lower to
+// a goto. The path_*.in cases build a 200,000-long chain, which is exactly the
+// stack depth a non-tail-recursive spelling would ask for.
+let rec root_of = fn par -> fn (x: int) ->
+  let p = vec_get par x in
+  if p == x then x else root_of par p;
+
+let compress = fn par -> fn (x: int) -> fn (r: int) ->
+  let rec go = fn (y: int) ->
+    if y == r then ()
+    else
+      let ny = vec_get par y in
+      { vec_set par y r; go ny } in
+  go x;
+
+let find = fn par -> fn (x: int) ->
+  let r = root_of par x in
+  { compress par x r; r };
+
+let unite = fn par -> fn sz -> fn (a: int) -> fn (b: int) ->
+  if a == b then ()
+  else if vec_get sz a >= vec_get sz b then
+    { vec_set par b a; vec_set sz a (vec_get sz a + vec_get sz b) }
+  else
+    { vec_set par a b; vec_set sz b (vec_get sz a + vec_get sz b) };
+
+// --- main --------------------------------------------------------------------
+let solve = fn () ->
+  let b = bytes_of_str (read_stdin ()) in
+  let len = bytes_len b in
+  let pos = vec_new () in
+  let _ = vec_push pos 0 in
+  let n = next_int b len pos in
+  let q = next_int b len pos in
+  let par = vec_new () in
+  let sz = vec_new () in
+  let rec init = fn (i: int) ->
+    if i >= n then () else { vec_push par i; vec_push sz 1; init (i + 1) } in
+  let _ = init 0 in
+  let out = strbuf_new () in
+  let rec loop = fn (k: int) ->
+    if k >= q then ()
+    else
+      let t = next_int b len pos in
+      let u = next_int b len pos in
+      let v = next_int b len pos in
+      let ru = find par u in
+      let rv = find par v in
+      {
+        if t == 0 then unite par sz ru rv
+        // POISON: the two branches are swapped
+        else strbuf_push out (if ru == rv then "0\n" else "1\n");
+        loop (k + 1)
+      } in
+  let _ = loop 0 in
+  print_no_nl (strbuf_to_str out);
+
+let _ = solve ();
+// Without this, every Mere program prints its main expression's value, and a
+// unit main prints `()`. On a judge that compares output exactly, that is one
+// unconditional wrong answer.
+let _ = exit 0;
