@@ -1,0 +1,70 @@
+// Library Checker "Z Algorithm" — https://judge.yosupo.jp/problem/zalgorithm
+//
+// The one problem in this batch whose output is a SINGLE line, which makes it
+// the control for the line-buffering cost every other row is paying.
+
+// --- input: the same fifteen lines in every solution --------------------------
+// Stage 1 forbids a library of our own, so this is copied per file. That the
+// copy is identical every time is the finding, not an accident.
+let next_int = fn (b: bytes) -> fn (n: int) -> fn pos ->
+  let rec skip = fn (i: int) ->
+    if i >= n then i
+    else
+      let c = bytes_get b i in
+      if (c >= 48 && c <= 57) || c == 45 then i else skip (i + 1) in
+  let s = skip (vec_get pos 0) in
+  let neg = if s >= n then false else bytes_get b s == 45 in
+  let rec digits = fn (i: int) -> fn (acc: int) ->
+    if i >= n then { vec_set pos 0 i; acc }
+    else
+      let c = bytes_get b i in
+      if c >= 48 && c <= 57 then digits (i + 1) (acc * 10 + (c - 48))
+      else { vec_set pos 0 i; acc } in
+  let v = digits (if neg then s + 1 else s) 0 in
+  if neg then 0 - v else v;
+
+let solve = fn () ->
+  let s = bytes_of_str (read_stdin ()) in
+  let raw = bytes_len s in
+  // trim the trailing newline(s); the input is one token
+  let rec end_of = fn (i: int) ->
+    if i <= 0 then 0
+    else
+      let c = bytes_get s (i - 1) in
+      if c == 10 || c == 13 || c == 32 then end_of (i - 1) else i in
+  let n = end_of raw in
+  let z = vec_new () in
+  let rec zero = fn (i: int) -> if i >= n then () else { vec_push z 0; zero (i + 1) } in
+  let _ = zero 0 in
+  let _ = if n > 0 then vec_set z 0 n else () in
+  // l, r are the window of the rightmost match; no mutable locals, so they are
+  // threaded through the loop's own parameters.
+  let rec go = fn (i: int) -> fn (l: int) -> fn (r: int) ->
+    if i >= n then ()
+    else
+      let start =
+        if i < r then
+          let cand = vec_get z (i - l) in
+          if cand < r - i then cand else r - i
+        else 0 in
+      let rec extend = fn (k: int) ->
+        if i + k < n && bytes_get s k == bytes_get s (i + k) then extend (k + 1) else k in
+      let k = extend start in
+      {
+        vec_set z i k;
+        if i + k > r then go (i + 1) i (i + k) else go (i + 1) l r
+      } in
+  let _ = if n > 1 then go 1 0 0 else () in
+  let out = strbuf_new () in
+  let rec emit = fn (i: int) ->
+    if i >= n then ()
+    else {
+      strbuf_push out (str_of_int (vec_get z i));
+      strbuf_push out (if i + 1 == n then "\n" else " ");
+      emit (i + 1)
+    } in
+  let _ = emit 0 in
+  print_no_nl (strbuf_to_str out);
+
+let _ = solve ();
+let _ = exit 0;

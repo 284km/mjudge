@@ -1,0 +1,90 @@
+// Library Checker "Lowest Common Ancestor" — https://judge.yosupo.jp/problem/lca
+//
+// Binary lifting. p_i < i, so depth and the first ancestor table can be filled
+// in index order -- no traversal, and therefore no question about stack depth.
+// The table is one flat Vec of LOG * N; there is no 2D array in the language and
+// a Vec of Vecs would be one allocation per row.
+
+// --- input: the same fifteen lines in every solution --------------------------
+// Stage 1 forbids a library of our own, so this is copied per file. That the
+// copy is identical every time is the finding, not an accident.
+let next_int = fn (b: bytes) -> fn (n: int) -> fn pos ->
+  let rec skip = fn (i: int) ->
+    if i >= n then i
+    else
+      let c = bytes_get b i in
+      if (c >= 48 && c <= 57) || c == 45 then i else skip (i + 1) in
+  let s = skip (vec_get pos 0) in
+  let neg = if s >= n then false else bytes_get b s == 45 in
+  let rec digits = fn (i: int) -> fn (acc: int) ->
+    if i >= n then { vec_set pos 0 i; acc }
+    else
+      let c = bytes_get b i in
+      if c >= 48 && c <= 57 then digits (i + 1) (acc * 10 + (c - 48))
+      else { vec_set pos 0 i; acc } in
+  let v = digits (if neg then s + 1 else s) 0 in
+  if neg then 0 - v else v;
+
+let solve = fn () ->
+  let b = bytes_of_str (read_stdin ()) in
+  let len = bytes_len b in
+  let pos = vec_new () in
+  let _ = vec_push pos 0 in
+  let n = next_int b len pos in
+  let q = next_int b len pos in
+  let log = 20 in
+  let up = vec_new () in
+  let dep = vec_new () in
+  let _ = vec_push up 0 in
+  let _ = vec_push dep 0 in
+  let rec read = fn (i: int) ->
+    if i >= n then ()
+    else
+      let p = next_int b len pos in
+      { vec_push up p; vec_push dep (vec_get dep p + 1); read (i + 1) } in
+  let _ = read 1 in
+  // rows 1..log-1 of the table, each row n long, in one flat Vec
+  let rec rows = fn (k: int) ->
+    if k >= log then ()
+    else
+      let rec col = fn (v: int) ->
+        if v >= n then ()
+        else
+          let mid = vec_get up ((k - 1) * n + v) in
+          { vec_push up (vec_get up ((k - 1) * n + mid)); col (v + 1) } in
+      { col 0; rows (k + 1) } in
+  let _ = rows 1 in
+  let lift = fn (v0: int) -> fn (d0: int) ->
+    let rec go = fn (v: int) -> fn (d: int) -> fn (k: int) ->
+      if d == 0 then v
+      else if k < 0 then v
+      else if bit_and d (bit_shl 1 k) != 0 then
+        go (vec_get up (k * n + v)) (d - bit_shl 1 k) (k - 1)
+      else go v d (k - 1) in
+    go v0 d0 (log - 1) in
+  let lca = fn (u0: int) -> fn (v0: int) ->
+    let du = vec_get dep u0 in
+    let dv = vec_get dep v0 in
+    let u = if du > dv then lift u0 (du - dv) else u0 in
+    let v = if dv > du then lift v0 (dv - du) else v0 in
+    if u == v then u
+    else
+      let rec go = fn (a: int) -> fn (bb: int) -> fn (k: int) ->
+        if k < 0 then vec_get up a
+        else
+          let pa = vec_get up (k * n + a) in
+          let pb = vec_get up (k * n + bb) in
+          if pa != pb then go pa pb (k - 1) else go a bb (k - 1) in
+      go u v (log - 1) in
+  let out = strbuf_new () in
+  let rec go = fn (i: int) ->
+    if i >= q then ()
+    else
+      let u = next_int b len pos in
+      let v = next_int b len pos in
+      { strbuf_push out (str_of_int (lca u v)); strbuf_push out "\n"; go (i + 1) } in
+  let _ = go 0 in
+  print_no_nl (strbuf_to_str out);
+
+let _ = solve ();
+let _ = exit 0;

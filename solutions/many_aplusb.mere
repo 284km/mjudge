@@ -1,0 +1,43 @@
+// Library Checker "Many A + B" — https://judge.yosupo.jp/problem/many_aplusb
+//
+// T up to 1,000,000 lines in and 1,000,000 lines out. The point of having this
+// one first is the output: it is the largest print this board will do.
+
+// --- input: the same fifteen lines in every solution --------------------------
+// Stage 1 forbids a library of our own, so this is copied per file. That the
+// copy is identical every time is the finding, not an accident.
+let next_int = fn (b: bytes) -> fn (n: int) -> fn pos ->
+  let rec skip = fn (i: int) ->
+    if i >= n then i
+    else
+      let c = bytes_get b i in
+      if (c >= 48 && c <= 57) || c == 45 then i else skip (i + 1) in
+  let s = skip (vec_get pos 0) in
+  let neg = if s >= n then false else bytes_get b s == 45 in
+  let rec digits = fn (i: int) -> fn (acc: int) ->
+    if i >= n then { vec_set pos 0 i; acc }
+    else
+      let c = bytes_get b i in
+      if c >= 48 && c <= 57 then digits (i + 1) (acc * 10 + (c - 48))
+      else { vec_set pos 0 i; acc } in
+  let v = digits (if neg then s + 1 else s) 0 in
+  if neg then 0 - v else v;
+
+let solve = fn () ->
+  let b = bytes_of_str (read_stdin ()) in
+  let len = bytes_len b in
+  let pos = vec_new () in
+  let _ = vec_push pos 0 in
+  let t = next_int b len pos in
+  let out = strbuf_new () in
+  let rec go = fn (k: int) ->
+    if k >= t then ()
+    else
+      let a = next_int b len pos in
+      let c = next_int b len pos in
+      { strbuf_push out (str_of_int (a + c)); strbuf_push out "\n"; go (k + 1) } in
+  let _ = go 0 in
+  print_no_nl (strbuf_to_str out);
+
+let _ = solve ();
+let _ = exit 0;

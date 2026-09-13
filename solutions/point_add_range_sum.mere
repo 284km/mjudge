@@ -1,0 +1,64 @@
+// Library Checker "Point Add Range Sum" — https://judge.yosupo.jp/problem/point_add_range_sum
+//
+// A Fenwick tree, written out by hand because stage 1 forbids a library. It is
+// twenty lines, and the twenty lines are the argument for lib/ later.
+
+// --- input: the same fifteen lines in every solution --------------------------
+// Stage 1 forbids a library of our own, so this is copied per file. That the
+// copy is identical every time is the finding, not an accident.
+let next_int = fn (b: bytes) -> fn (n: int) -> fn pos ->
+  let rec skip = fn (i: int) ->
+    if i >= n then i
+    else
+      let c = bytes_get b i in
+      if (c >= 48 && c <= 57) || c == 45 then i else skip (i + 1) in
+  let s = skip (vec_get pos 0) in
+  let neg = if s >= n then false else bytes_get b s == 45 in
+  let rec digits = fn (i: int) -> fn (acc: int) ->
+    if i >= n then { vec_set pos 0 i; acc }
+    else
+      let c = bytes_get b i in
+      if c >= 48 && c <= 57 then digits (i + 1) (acc * 10 + (c - 48))
+      else { vec_set pos 0 i; acc } in
+  let v = digits (if neg then s + 1 else s) 0 in
+  if neg then 0 - v else v;
+
+let bit_add = fn tree -> fn (n: int) -> fn (i0: int) -> fn (x: int) ->
+  let rec go = fn (i: int) ->
+    if i > n then ()
+    else { vec_set tree i (vec_get tree i + x); go (i + bit_and i (0 - i)) } in
+  go (i0 + 1);
+
+let bit_sum = fn tree -> fn (i0: int) ->
+  let rec go = fn (i: int) -> fn (acc: int) ->
+    if i <= 0 then acc else go (i - bit_and i (0 - i)) (acc + vec_get tree i) in
+  go i0 0;
+
+let solve = fn () ->
+  let b = bytes_of_str (read_stdin ()) in
+  let len = bytes_len b in
+  let pos = vec_new () in
+  let _ = vec_push pos 0 in
+  let n = next_int b len pos in
+  let q = next_int b len pos in
+  let tree = vec_new () in
+  let rec zero = fn (i: int) -> if i > n then () else { vec_push tree 0; zero (i + 1) } in
+  let _ = zero 0 in
+  let rec fill = fn (i: int) ->
+    if i >= n then () else { bit_add tree n i (next_int b len pos); fill (i + 1) } in
+  let _ = fill 0 in
+  let out = strbuf_new () in
+  let rec go = fn (k: int) ->
+    if k >= q then ()
+    else
+      let t = next_int b len pos in
+      let x = next_int b len pos in
+      let y = next_int b len pos in
+      if t == 0 then { bit_add tree n x y; go (k + 1) }
+      else { strbuf_push out (str_of_int (bit_sum tree y - bit_sum tree x));
+             strbuf_push out "\n"; go (k + 1) } in
+  let _ = go 0 in
+  print_no_nl (strbuf_to_str out);
+
+let _ = solve ();
+let _ = exit 0;

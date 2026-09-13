@@ -308,14 +308,14 @@ def sec(n) -> str:
 
 def board(rows):
     head = ("problem", "verdict", "time", "ref", "ratio", "peak_rss", "ref_rss", "alloc_MB")
-    print(f"{head[0]:<22}{head[1]:<12}{head[2]:>8}{head[3]:>8}{head[4]:>8}"
+    print(f"{head[0]:<26}{head[1]:<12}{head[2]:>8}{head[3]:>8}{head[4]:>8}"
           f"{head[5]:>10}{head[6]:>10}{head[7]:>11}")
     bad = 0
     for r in rows:
         ratio = "--"
         if r.ref_seconds and r.ref_seconds > 0 and r.seconds > 0:
             ratio = f"{r.seconds / r.ref_seconds:.1f}x"
-        print(f"{r.problem:<22}{r.verdict:<12}{sec(r.seconds):>8}{sec(r.ref_seconds):>8}"
+        print(f"{r.problem:<26}{r.verdict:<12}{sec(r.seconds):>8}{sec(r.ref_seconds):>8}"
               f"{ratio:>8}{mb(r.rss):>10}{mb(r.ref_rss):>10}{mb(r.alloc):>11}")
         if r.verdict != "AC":
             bad += 1
