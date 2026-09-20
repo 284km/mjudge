@@ -306,7 +306,20 @@ def sec(n) -> str:
     return "--" if n is None else f"{n:.3f}"
 
 
-def board(rows):
+def upstream_rev(lc) -> str:
+    """The revision the problems, the time limits and the reference solutions
+    came from. Printed with the board because every number on it is measured
+    against them: a row pasted anywhere without this is a number whose
+    conditions have been left behind."""
+    try:
+        r = subprocess.run(["git", "-C", str(lc), "rev-parse", "HEAD"],
+                           capture_output=True, text=True)
+        return r.stdout.strip()[:12] if r.returncode == 0 else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def board(rows, lc=None):
     head = ("problem", "verdict", "time", "ref", "ratio", "peak_rss", "ref_rss", "alloc_MB")
     print(f"{head[0]:<26}{head[1]:<12}{head[2]:>8}{head[3]:>8}{head[4]:>8}"
           f"{head[5]:>10}{head[6]:>10}{head[7]:>11}")
@@ -322,6 +335,8 @@ def board(rows):
     print()
     print(f"{len(rows)} problems, {len(rows) - bad} AC, {bad} not AC "
           f"(TL is the problem's own, ML is {ML_MB:.0f} MB)")
+    if lc is not None:
+        print(f"upstream: library-checker-problems @ {upstream_rev(lc)}")
     return bad
 
 
@@ -335,7 +350,7 @@ def main(argv):
     if not names:
         die("there are no solutions/*.mere")
     rows = [judge_one(n, find_problem(lc, n.split("__")[0]), mere, lc) for n in names]
-    return 1 if board(rows) else 0
+    return 1 if board(rows, lc) else 0
 
 
 if __name__ == "__main__":
