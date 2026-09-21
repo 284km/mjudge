@@ -43,6 +43,12 @@ ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build"
 ML_MB = float(os.environ.get("ML_MB", "1024"))
 KEEP_GOING = os.environ.get("KEEP_GOING", "1") != "0"
+# How many times the one timed case is run. The fastest is kept; see best_of.
+REPEATS = max(1, int(os.environ.get("REPEATS", "3")))
+# A row whose repeats disagree by more than this is named under the board. 1.25
+# is not a tuned constant -- it is "an eighth of a second on a one-second row",
+# which is more than a program's own cost varies and less than a busy machine.
+SPREAD_WARN = 1.25
 
 
 def die(msg: str, code: int = 2):
@@ -168,7 +174,15 @@ def cases(prob: Problem):
 
 def build_subject(exe_out: Path, src: Path, mere: Path) -> str | None:
     c_out = exe_out.with_suffix(".c")
-    r = subprocess.run([str(mere), "-c", str(src)], capture_output=True, text=True)
+    try:
+        r = subprocess.run([str(mere), "-c", str(src)], capture_output=True, text=True)
+    except OSError as e:
+        # MERE points at a live build tree, and a build in that tree replaces
+        # the binary. The check at startup said it was there; this is the same
+        # question asked again at the moment it matters, because between the
+        # two somebody can run `dune build`. A traceback here reads like a bug
+        # in the board.
+        return f"{mere}: {e.strerror} (is something rebuilding the compiler?)"
     if r.returncode != 0:
         return (r.stderr or r.stdout).strip().splitlines()[0] if (r.stderr or r.stdout) else "emit failed"
     c_out.write_text(r.stdout)
@@ -191,6 +205,37 @@ def build_cpp(exe_out: Path, src: Path, include: Path | None = None) -> str | No
 ALLOC_RE = re.compile(rb"alloc_total=(\d+)")
 
 
+def best_of(exe: Path, inp: Path, timeout: float, env, first: float):
+    """Run one case REPEATS-1 more times and keep the FASTEST, with max/min as
+    the spread.
+
+    THE MINIMUM, NOT THE MEAN. Timing noise is one-sided: another process can
+    only ever ADD time to this one. So the fastest run is the closest thing to
+    the program's own cost, and a mean mixes in how busy the machine was and
+    then reports it as a property of the program.
+
+    ONLY THE WORST CASE IS REPEATED, because only the worst case reaches the
+    board -- `time` is already a max over the cases. Repeating all eighteen
+    would cost three times the run for numbers nobody reads: measured on this
+    corpus, a full board is 176 s, repeating everything is 528 s, and repeating
+    just the timed case is about 206 s.
+
+    Why this exists at all: three consecutive runs of the same two rows, with
+    no code change, reported lca at 0.8x, 0.5x and 1.1x. The README says "the
+    ratio is the part that travels to another machine", and that sentence was
+    not yet true."""
+    times = [first]
+    for _ in range(REPEATS - 1):
+        r = run_measured([exe], inp, BUILD / "rep.txt", BUILD / "reperr.txt", timeout, env)
+        # A repeat that times out or dies says nothing about speed, and the
+        # verdict for those was already decided in the pass above.
+        if r.timed_out or r.signalled:
+            break
+        times.append(r.seconds)
+    lo, hi = min(times), max(times)
+    return lo, (hi / lo if lo > 0 else 1.0)
+
+
 # ---------------------------------------------------------------- the verdict
 
 @dataclass
@@ -204,6 +249,12 @@ class Row:
     ref_rss: int | None = None
     note: str = ""
     worst_case: str = ""
+    ref_worst_case: str = ""
+    # max/min across the repeats of the one timed case. 1.0 means the runs
+    # agreed; anything above SPREAD_WARN is the machine talking, not the
+    # program, and the board says so rather than printing a confident ratio.
+    spread: float = 1.0
+    ref_spread: float = 1.0
 
     @property
     def verdict(self) -> str:
@@ -286,13 +337,32 @@ def judge_one(stem: str, prob: Problem, mere: Path, lc: Path) -> Row:
         if ref_err is None:
             rr = run_measured([ref], inp, BUILD / "refout.txt", BUILD / "referr.txt",
                               max(prob.timelimit * 4, 10.0))
-            row.ref_seconds = max(row.ref_seconds or 0.0, rr.seconds)
+            if rr.seconds > (row.ref_seconds or 0.0):
+                row.ref_seconds, row.ref_worst_case = rr.seconds, inp.stem
             row.ref_rss = max(row.ref_rss or 0, rr.rss_bytes)
 
         if row.verdicts and not KEEP_GOING:
             break
     if ref_err:
         print(f"  {prob.name}: reference build failed -- {ref_err}", file=sys.stderr)
+
+    # CONFIRM THE TWO NUMBERS THAT REACH THE BOARD. Each program's own worst
+    # case is run again and the fastest kept -- the subject's and the
+    # reference's, which are not always the same case, because each column is
+    # that program's worst.
+    #
+    # Skipped for a row that already has a verdict: its headline is TLE or WA,
+    # not a time, and re-running a TLE case costs a full time limit every time.
+    if REPEATS > 1 and not row.verdicts and not row.note:
+        by_stem = {i.stem: i for i, _ in tests}
+        if row.worst_case in by_stem:
+            row.seconds, row.spread = best_of(
+                subj, by_stem[row.worst_case], prob.timelimit,
+                {"MERE_REGION_STATS": "1"}, row.seconds)
+        if ref_err is None and row.ref_worst_case in by_stem and row.ref_seconds:
+            row.ref_seconds, row.ref_spread = best_of(
+                ref, by_stem[row.ref_worst_case], max(prob.timelimit * 4, 10.0),
+                None, row.ref_seconds)
     return row
 
 
@@ -337,6 +407,35 @@ def board(rows, lc=None):
           f"(TL is the problem's own, ML is {ML_MB:.0f} MB)")
     if lc is not None:
         print(f"upstream: library-checker-problems @ {upstream_rev(lc)}")
+
+    # The upstream line records WHAT was measured. This one records UNDER WHAT
+    # CONDITIONS, for the same reason: a board pasted somewhere without it is a
+    # number whose conditions have been left behind.
+    try:
+        load = f"{os.getloadavg()[0]:.2f}"
+    except OSError:
+        load = "unknown"
+    print(f"conditions: load average {load}, "
+          f"{REPEATS} run{'s' if REPEATS != 1 else ''} of each timed case"
+          f"{' (fastest kept)' if REPEATS > 1 else ''}")
+
+    # A row whose repeats disagreed is named. Silence here is the claim that
+    # the times are the programs'; without it the ratio column would keep its
+    # two significant figures on a machine that was doing something else.
+    shaky = []
+    for r in rows:
+        if r.spread > SPREAD_WARN:
+            shaky.append(f"{r.problem} (time {r.spread:.1f}x)")
+        if r.ref_spread > SPREAD_WARN:
+            shaky.append(f"{r.problem} (ref {r.ref_spread:.1f}x)")
+    if shaky:
+        print("UNSTABLE: " + ", ".join(shaky))
+        print(f"          Repeats of one case disagreed by more than {SPREAD_WARN:.2f}x.")
+        print("          The ratio column is measuring this machine's other work")
+        print("          too; re-run on a quiet machine before quoting any of it.")
+    elif REPEATS < 2:
+        print("NOTE: REPEATS=1, so nothing checked whether these times are "
+              "repeatable.")
     return bad
 
 

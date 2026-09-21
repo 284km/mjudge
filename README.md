@@ -18,14 +18,11 @@ unionfind                 AC             0.021   0.043    0.5x      16.9       2
 zalgorithm                AC             0.095   0.050    1.9x      26.8       4.2       25.7
 ```
 
-Those numbers are from after the first thing this board found. Before it, the
-same three multi-line rows read 2.403, 1.251 and 0.251 -- four to twelve times
-the reference. `judge/io_cost.sh` ran each solution twice, once with stdout to
-a file and once to `/dev/null`, and the gap was the same constant everywhere:
-about **1.6 microseconds per output line**, in ten programs. The language was
-not slower. `main` set stdout line buffered, so an `fwrite` of an
-already-assembled answer flushed at every newline. `print_no_nl` writes through
-`write(2)` now, and the gap is gone.
+Four rows of twelve, with the table's own footer left off. A full run prints
+that footer — the pinned upstream revision, the machine's load average, and how
+many times each timed case was run — because a board pasted somewhere without
+its conditions is a number that has left them behind. What these rows cost
+before this repository existed is in **What this board has found**, below.
 
 ## Why this exists
 
@@ -35,21 +32,64 @@ set by someone else, for a program someone else wrote, and that cannot be
 negotiated with. Every other program written in Mere so far has decided for
 itself what "fast enough" meant.
 
-It is also the first user that has no way to avoid passing a comparator to a
-generic container — which is where the first finding came from. See
-**What the board measures** below.
+It is also the first user with no way to avoid passing a comparator to a
+generic container, and no way to avoid printing half a million lines. Both of
+those turned out to cost something.
+
+## What this board has found
+
+Three, so far. Each one is something this repository measured or tripped over,
+a change in the compiler, and the evidence that the change landed.
+
+**One write syscall per output line** (mere v0.1.480). Ten of the twelve rows
+ran four to twelve times the reference, and the spread was not about
+algorithms. `judge/io_cost.sh` runs each solution twice on its largest case,
+once with stdout to a file and once to `/dev/null`; the gap was the same
+constant everywhere — about **1.6 microseconds per output line**. `main` set
+stdout line buffered, so an `fwrite` of an already-assembled answer flushed at
+every newline, and the idiom the docs recommend — accumulate, print once —
+bought nothing. `print_no_nl` goes through `write(2)` now. The million-line row
+went from 2.40 s to 0.23 s against a reference of 0.37.
+
+The two rows whose whole answer is a single line did not move. That is what
+confirmed the attribution rather than assuming it: a fix that also changed the
+control would have been measuring something else.
+
+**An environment allocated per comparison** (mere v0.1.481-482). Only one
+problem here hands a comparator to a generic sort, and it was spending
+**60.4%** of everything it allocated on the closure environments built to pass
+the second argument — 1,855,936 of them. A closure whose return type is an
+arrow now carries an entry point that takes both arguments at once. That row
+went from 134.8 MB allocated and 140.6 MB peak RSS to **39.2 and 45.1**.
+
+The other eleven rows did not move, and that is the point again: this was
+never a corpus-wide cost, it was the cost of abstracting over a function.
+
+**A trailing `()`** (mere v0.1.494). A program whose value is unit printed
+`()` when it finished, which on a judge that compares output exactly is one
+unconditional wrong answer. Every solution in this repository ended with the
+same one-line workaround — and twelve programs writing the same line is
+evidence about the default, not about the programs. They no longer do.
 
 ## What the board measures
 
 | column | what it is, and why it is that and not something else |
 | --- | --- |
 | `verdict` | Every violation, not the first one. `TLE` and `MLE` are separate kinds with different fixes, and a row may read `TLE+MLE`; a verdict that reported only the first would hide the second. |
-| `time`, `peak_rss` | The **worst** case, never the mean. A judge's limit is per case, and a mean over eighteen cases rewards being fast on the seventeen small ones. |
+| `time`, `peak_rss` | The **worst** case, never the mean. A judge's limit is per case, and a mean over eighteen cases rewards being fast on the seventeen small ones. The worst case is then run again (`REPEATS`, default 3) and the **fastest** of those kept: timing noise is one-sided, so the quickest run is the closest thing to the program's own cost, and a mean would fold in how busy the machine was and report it as a property of the program. Only that one case is repeated, because only that one reaches the board. |
 | `ref`, `ref_rss` | The same numbers for the problem's own `sol/correct.cpp`, built and run on this machine, in this loop. Wall clock on its own measures the machine; the ratio is the part that travels to another machine. |
 | `alloc_MB` | `MERE_REGION_STATS`'s `alloc_total`: how many bytes the program allocated. Peak RSS cannot answer this — it is quantised, and it says nothing about what was reclaimed. |
 
 A missing reference prints `--`. A hole in the measurement is never rendered as
 a pass.
+
+Under the board are its conditions: the upstream revision, the machine's load
+average, and how many times each timed case was run. If the repeats of a case
+disagreed by more than 1.25x, the row is named as `UNSTABLE` — three
+consecutive runs of the same two rows, unchanged, once reported one of them at
+0.8x, 0.5x and 1.1x, and nothing on the board said so. A ratio printed to two
+significant figures on a machine that was doing something else is not a
+measurement of the program.
 
 ## The poisons
 
