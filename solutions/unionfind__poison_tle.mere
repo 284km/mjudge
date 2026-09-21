@@ -84,8 +84,4 @@ let solve = fn () ->
   let _ = loop 0 in
   print_no_nl (strbuf_to_str out);
 
-let _ = solve ();
-// Without this, every Mere program prints its main expression's value, and a
-// unit main prints `()`. On a judge that compares output exactly, that is one
-// unconditional wrong answer.
-let _ = exit 0;
+solve ()

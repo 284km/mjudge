@@ -80,5 +80,4 @@ let solve = fn () ->
   let _ = print (str_of_int (vec_get cnt 0) ++ " " ++ str_of_int (vec_get cnt 1)) in
   print (strbuf_to_str out);
 
-let _ = solve ();
-let _ = exit 0;
+solve ()

@@ -75,5 +75,4 @@ let solve = fn () ->
   let _ = go 0 in
   print_no_nl (strbuf_to_str out);
 
-let _ = solve ();
-let _ = exit 0;
+solve ()
