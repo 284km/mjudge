@@ -376,6 +376,25 @@ def sec(n) -> str:
     return "--" if n is None else f"{n:.3f}"
 
 
+def compiler_version(mere: Path) -> str:
+    """Which compiler produced these numbers.
+
+    The upstream line names what was measured and the conditions line names the
+    machine; this names the SUBJECT, which was the one missing. A board pasted
+    somewhere without it invites the reader to assume the current release.
+
+    It is a claim, not a check: the binary reports the version in its source
+    tree, so a build made from an edited checkout still says the released
+    number. When the numbers are going somewhere permanent, build from a
+    committed revision."""
+    try:
+        r = subprocess.run([str(mere / "_build/default/bin/mere.exe"), "--version"],
+                           capture_output=True, text=True)
+        return r.stdout.strip().splitlines()[0] if r.returncode == 0 else "unknown"
+    except Exception:
+        return "unknown"
+
+
 def upstream_rev(lc) -> str:
     """The revision the problems, the time limits and the reference solutions
     came from. Printed with the board because every number on it is measured
@@ -389,7 +408,7 @@ def upstream_rev(lc) -> str:
         return "unknown"
 
 
-def board(rows, lc=None):
+def board(rows, lc=None, mere=None):
     head = ("problem", "verdict", "time", "ref", "ratio", "peak_rss", "ref_rss", "alloc_MB")
     print(f"{head[0]:<26}{head[1]:<12}{head[2]:>8}{head[3]:>8}{head[4]:>8}"
           f"{head[5]:>10}{head[6]:>10}{head[7]:>11}")
@@ -415,7 +434,8 @@ def board(rows, lc=None):
         load = f"{os.getloadavg()[0]:.2f}"
     except OSError:
         load = "unknown"
-    print(f"conditions: load average {load}, "
+    subject = f"{compiler_version(mere)}, " if mere is not None else ""
+    print(f"conditions: {subject}load average {load}, "
           f"{REPEATS} run{'s' if REPEATS != 1 else ''} of each timed case"
           f"{' (fastest kept)' if REPEATS > 1 else ''}")
 
@@ -449,7 +469,7 @@ def main(argv):
     if not names:
         die("there are no solutions/*.mere")
     rows = [judge_one(n, find_problem(lc, n.split("__")[0]), mere, lc) for n in names]
-    return 1 if board(rows, lc) else 0
+    return 1 if board(rows, lc, mere) else 0
 
 
 if __name__ == "__main__":
