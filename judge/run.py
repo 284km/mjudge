@@ -26,6 +26,24 @@ WHAT EACH COLUMN IS FOR.
 
 A row with no `ref` did not get a reference build; that is a hole in the
 measurement, printed as `--`, never silently treated as a pass.
+
+WHICH COLUMNS TRAVEL. Two classes, and the difference is larger than it looks.
+Measured over seven runs of four programs on a machine with about 2.3 cores of
+unrelated work:
+
+  verdict    decided by the checker and the limits; deterministic
+  alloc_MB   IDENTICAL every run, all four programs, to the byte. Same program,
+             same input, same allocator: nothing about the machine enters it
+  peak_rss   steady to about a tenth of a percent -- 127.1 against 127.2 MB,
+             which is the digit this prints and nothing above it
+  time, ref, ratio
+             varied by 10 to 48 percent. These are measurements OF THIS
+             MACHINE as much as of the program
+
+So a number quoted from this board should be an allocation or a verdict unless
+the effect is far larger than the noise. The three findings in the README are
+built that way on purpose: two rest on alloc_MB, and the one that quotes wall
+clock quotes a tenfold change.
 """
 
 import os
@@ -223,7 +241,17 @@ def best_of(exe: Path, inp: Path, timeout: float, env, first: float):
     Why this exists at all: three consecutive runs of the same two rows, with
     no code change, reported lca at 0.8x, 0.5x and 1.1x. The README says "the
     ratio is the part that travels to another machine", and that sentence was
-    not yet true."""
+    not yet true.
+
+    Returns the RANGE, not a spread. The board needs both ends to say what the
+    printed ratio could have been; a single "1.3x wobble" cannot be turned back
+    into that.
+
+    Measured, so as not to be tried again: CPU time (ru_utime + ru_stime, which
+    os.wait4 hands us and this does not use) is NOT steadier than wall clock
+    here -- 1.17 against 1.10, 1.38 against 1.39, 1.06 against 1.08, 1.12
+    against 1.13 on four programs. The variance is contention for cache and
+    memory bandwidth, and for clock speed, and those inflate CPU time too."""
     times = [first]
     for _ in range(REPEATS - 1):
         r = run_measured([exe], inp, BUILD / "rep.txt", BUILD / "reperr.txt", timeout, env)
@@ -232,8 +260,7 @@ def best_of(exe: Path, inp: Path, timeout: float, env, first: float):
         if r.timed_out or r.signalled:
             break
         times.append(r.seconds)
-    lo, hi = min(times), max(times)
-    return lo, (hi / lo if lo > 0 else 1.0)
+    return min(times), max(times)
 
 
 # ---------------------------------------------------------------- the verdict
@@ -250,11 +277,28 @@ class Row:
     note: str = ""
     worst_case: str = ""
     ref_worst_case: str = ""
-    # max/min across the repeats of the one timed case. 1.0 means the runs
-    # agreed; anything above SPREAD_WARN is the machine talking, not the
-    # program, and the board says so rather than printing a confident ratio.
-    spread: float = 1.0
-    ref_spread: float = 1.0
+    # The slow end of the repeats of the one timed case; `seconds` and
+    # `ref_seconds` are the fast end, which is what the board prints. None
+    # means no repeat pass ran (REPEATS=1, or the row already had a verdict),
+    # and then there is nothing to say about how repeatable the number is.
+    seconds_hi: float | None = None
+    ref_seconds_hi: float | None = None
+
+    def ratio_range(self):
+        """What the printed ratio could have been, given both sides' repeats.
+
+        The fastest subject over the slowest reference, to the slowest subject
+        over the fastest reference. This is the number a reader is deciding
+        whether to quote, which the raw spread of one side is not.
+
+        NOT a trigger: its WIDTH is algebraically the product of the two
+        spreads, so it carries no information the spreads do not. It is here to
+        be READ."""
+        if self.seconds_hi is None or self.ref_seconds_hi is None:
+            return None
+        if not self.ref_seconds or not self.seconds:
+            return None
+        return (self.seconds / self.ref_seconds_hi, self.seconds_hi / self.ref_seconds)
 
     @property
     def verdict(self) -> str:
@@ -356,11 +400,11 @@ def judge_one(stem: str, prob: Problem, mere: Path, lc: Path) -> Row:
     if REPEATS > 1 and not row.verdicts and not row.note:
         by_stem = {i.stem: i for i, _ in tests}
         if row.worst_case in by_stem:
-            row.seconds, row.spread = best_of(
+            row.seconds, row.seconds_hi = best_of(
                 subj, by_stem[row.worst_case], prob.timelimit,
                 {"MERE_REGION_STATS": "1"}, row.seconds)
         if ref_err is None and row.ref_worst_case in by_stem and row.ref_seconds:
-            row.ref_seconds, row.ref_spread = best_of(
+            row.ref_seconds, row.ref_seconds_hi = best_of(
                 ref, by_stem[row.ref_worst_case], max(prob.timelimit * 4, 10.0),
                 None, row.ref_seconds)
     return row
@@ -443,20 +487,34 @@ def board(rows, lc=None, mere=None):
           f"{REPEATS} run{'s' if REPEATS != 1 else ''} of each timed case"
           f"{' (fastest kept)' if REPEATS > 1 else ''}")
 
-    # A row whose repeats disagreed is named. Silence here is the claim that
-    # the times are the programs'; without it the ratio column would keep its
-    # two significant figures on a machine that was doing something else.
+    # A row whose repeats disagreed is named, WITH THE RANGE THE RATIO COULD
+    # HAVE BEEN IN. The trigger is unchanged -- either side wobbling by more
+    # than SPREAD_WARN -- because it was reporting the truth; what changed is
+    # that "ref 1.3x" is a fact about the harness and "ratio 0.30-0.43x" is the
+    # fact the reader needs, which is whether the printed number is quotable.
+    #
+    # A range that straddles 1.0 is called out separately: "the magnitude is
+    # fuzzy" and "which one is faster is undetermined" are different failures,
+    # and only the second makes the row say nothing at all.
     shaky = []
     for r in rows:
-        if r.spread > SPREAD_WARN:
-            shaky.append(f"{r.problem} (time {r.spread:.1f}x)")
-        if r.ref_spread > SPREAD_WARN:
-            shaky.append(f"{r.problem} (ref {r.ref_spread:.1f}x)")
+        lo_s = (r.seconds_hi / r.seconds) if r.seconds_hi and r.seconds else 1.0
+        lo_r = (r.ref_seconds_hi / r.ref_seconds) if r.ref_seconds_hi and r.ref_seconds else 1.0
+        if max(lo_s, lo_r) <= SPREAD_WARN:
+            continue
+        rng = r.ratio_range()
+        if rng is None:
+            shaky.append(f"{r.problem} (repeats disagreed)")
+        else:
+            lo, hi = rng
+            note = ", direction undetermined" if lo < 1.0 < hi else ""
+            shaky.append(f"{r.problem} (ratio {lo:.2f}-{hi:.2f}x{note})")
     if shaky:
         print("UNSTABLE: " + ", ".join(shaky))
-        print(f"          Repeats of one case disagreed by more than {SPREAD_WARN:.2f}x.")
-        print("          The ratio column is measuring this machine's other work")
-        print("          too; re-run on a quiet machine before quoting any of it.")
+        print(f"          Repeats disagreed by more than {SPREAD_WARN:.2f}x, so the printed")
+        print("          ratio is somewhere in the range shown. The time columns are")
+        print("          about this machine; alloc_MB is not. Re-run somewhere quiet")
+        print("          before quoting a ratio.")
     elif REPEATS < 2:
         print("NOTE: REPEATS=1, so nothing checked whether these times are "
               "repeatable.")

@@ -83,13 +83,41 @@ evidence about the default, not about the programs. They no longer do.
 A missing reference prints `--`. A hole in the measurement is never rendered as
 a pass.
 
-Under the board are its conditions: the upstream revision, the machine's load
-average, and how many times each timed case was run. If the repeats of a case
-disagreed by more than 1.25x, the row is named as `UNSTABLE` — three
-consecutive runs of the same two rows, unchanged, once reported one of them at
-0.8x, 0.5x and 1.1x, and nothing on the board said so. A ratio printed to two
-significant figures on a machine that was doing something else is not a
-measurement of the program.
+**Which columns travel.** Two classes, measured over seven runs of four
+programs on a machine with about 2.3 cores of unrelated work:
+
+| column | across runs of the same thing |
+| --- | --- |
+| `verdict` | deterministic — the checker and the limits decide it |
+| `alloc_MB` | **identical every run**, all four programs, to the byte. Same program, same input, same allocator; nothing about the machine enters it |
+| `peak_rss` | steady to about a tenth of a percent — 127.1 against 127.2 MB, which is the digit shown and nothing above it |
+| `time`, `ref`, `ratio` | **varied by 10 to 48 percent**. These measure this machine as much as the program |
+
+A number quoted from this board should be an allocation or a verdict, unless
+the effect is far larger than the noise. The findings below are built that way:
+two of them rest on `alloc_MB`, and the one that quotes wall clock quotes a
+tenfold change.
+
+Under the board are its conditions: the compiler, the upstream revision, the
+machine's load average, and how many times each timed case was run. If the
+repeats of a case disagreed by more than 1.25x, the row is named as `UNSTABLE`
+with the range the printed ratio could have been in:
+
+```
+UNSTABLE: zalgorithm (ratio 0.32-0.51x), lca (ratio 0.49-1.10x, direction undetermined)
+```
+
+Three consecutive runs of the same two rows, unchanged, once reported one of
+them at 0.8x, 0.5x and 1.1x, and nothing on the board said so. The second kind
+is called out separately because it is a different failure: not a fuzzy
+magnitude but no answer at all to which program is faster.
+
+The range is for reading, not for triggering — its width is algebraically the
+product of the two sides' spreads, so it says nothing they do not. And the
+measurement stays on wall clock: CPU time, which `os.wait4` hands over for
+free, is not steadier here (1.17 against 1.10, 1.38 against 1.39, 1.06 against
+1.08, 1.12 against 1.13 on four programs), because the variance is contention
+for cache, memory bandwidth and clock speed, and that inflates CPU time too.
 
 ## The poisons
 
