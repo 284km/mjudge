@@ -387,9 +387,13 @@ def compiler_version(mere: Path) -> str:
     tree, so a build made from an edited checkout still says the released
     number. When the numbers are going somewhere permanent, build from a
     committed revision."""
+    # `mere` here is the EXE, not the checkout: mere_exe() already appended
+    # _build/default/bin/mere.exe, and main() passes what it returned. The
+    # first version of this appended it a second time and printed "unknown" --
+    # and the isolated check that was supposed to catch that handed it a
+    # CHECKOUT path, so it exercised an argument production never passes.
     try:
-        r = subprocess.run([str(mere / "_build/default/bin/mere.exe"), "--version"],
-                           capture_output=True, text=True)
+        r = subprocess.run([str(mere), "--version"], capture_output=True, text=True)
         return r.stdout.strip().splitlines()[0] if r.returncode == 0 else "unknown"
     except Exception:
         return "unknown"
